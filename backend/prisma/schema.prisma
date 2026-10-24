@@ -1,0 +1,288 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  EDITOR
+  AUTHOR
+  USER
+}
+
+enum ArticleStatus {
+  DRAFT
+  PENDING
+  SCHEDULED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum CommentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SPAM
+}
+
+model User {
+  id              String            @id @default(uuid())
+  email           String            @unique
+  username        String?           @unique
+  fullName        String
+  password        String
+  avatar          String?
+  bio             String?
+  role            Role              @default(USER)
+  isActive        Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  articles        Article[]         @relation("AuthorArticles")
+  comments        Comment[]
+  likes           ArticleLike[]
+  bookmarks       Bookmark[]
+  mediaUploads    Media[]
+  auditLogs       AuditLog[]
+  resetTokens     PasswordResetToken[]
+  refreshTokens   RefreshToken[]
+
+  @@index([email])
+  @@index([role])
+}
+
+model Category {
+  id          String      @id @default(uuid())
+  name        String
+  slug        String      @unique
+  description String?
+  order       Int         @default(0)
+  parentId    String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  parent      Category?   @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Category[]  @relation("CategoryHierarchy")
+  articles    Article[]
+
+  @@index([slug])
+  @@index([parentId])
+}
+
+model Tag {
+  id        String       @id @default(uuid())
+  name      String
+  slug      String       @unique
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  articles  ArticleTag[]
+
+  @@index([slug])
+}
+
+model Article {
+  id            String        @id @default(uuid())
+  title         String
+  slug          String        @unique
+  summary       String
+  content       String        @db.Text
+  coverImage    String?
+  status        ArticleStatus @default(DRAFT)
+  isFeatured    Boolean       @default(false)
+  isEditorPick  Boolean       @default(false)
+  views         Int           @default(0)
+  readingTime   Int           @default(3) // minutes
+  metaTitle     String?
+  metaDesc      String?
+  publishedAt   DateTime?
+  scheduledAt   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  authorId      String
+  author        User          @relation("AuthorArticles", fields: [authorId], references: [id], onDelete: Cascade)
+
+  categoryId    String
+  category      Category      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  tags          ArticleTag[]
+  comments      Comment[]
+  likes         ArticleLike[]
+  bookmarks     Bookmark[]
+
+  @@index([slug])
+  @@index([status])
+  @@index([publishedAt])
+  @@index([authorId])
+  @@index([categoryId])
+  @@index([isFeatured])
+  @@index([isEditorPick])
+}
+
+model ArticleTag {
+  articleId String
+  tagId     String
+
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([articleId, tagId])
+  @@index([articleId])
+  @@index([tagId])
+}
+
+model Comment {
+  id        String        @id @default(uuid())
+  content   String        @db.Text
+  status    CommentStatus @default(APPROVED) // Set APPROVED by default or PENDING
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  articleId String
+  article   Article       @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  parentId  String?
+  parent    Comment?      @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Comment[]     @relation("CommentReplies")
+
+  @@index([articleId])
+  @@index([userId])
+  @@index([parentId])
+  @@index([status])
+}
+
+model ArticleLike {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  articleId String
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([articleId, userId])
+  @@index([articleId])
+  @@index([userId])
+}
+
+model Bookmark {
+  id        String   @id @default(uuid())
+  createdAt DateTime @default(now())
+
+  articleId String
+  article   Article  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([articleId, userId])
+  @@index([articleId])
+  @@index([userId])
+}
+
+model Media {
+  id           String   @id @default(uuid())
+  originalName String
+  fileName     String   @unique
+  url          String
+  mimeType     String
+  size         Int
+  createdAt    DateTime @default(now())
+
+  uploaderId   String
+  uploader     User     @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+
+  @@index([uploaderId])
+}
+
+model StaticPage {
+  id        String   @id @default(uuid())
+  slug      String   @unique
+  title     String
+  content   String   @db.Text
+  metaTitle String?
+  metaDesc  String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@index([slug])
+}
+
+model SiteSetting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String   @db.Text
+  description String?
+  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(now())
+
+  @@index([key])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  action     String
+  targetType String
+  targetId   String?
+  details    String?  @db.Text
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model ContactMessage {
+  id        String   @id @default(uuid())
+  fullName  String
+  email     String
+  phone     String?
+  subject   String
+  message   String   @db.Text
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([isRead])
+  @@index([createdAt])
+}
